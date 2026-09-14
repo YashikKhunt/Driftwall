@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        NSApp.applicationIconImage = Self.icon()
     }
     @MainActor static func showLibrary(store: WallpaperStore) {
         if libraryWindow == nil {
@@ -39,16 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         libraryWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-    static func icon() -> NSImage {
-        NSImage(size: NSSize(width: 256, height: 256), flipped: false) { rect in
-            NSColor(calibratedRed: 0.035, green: 0.10, blue: 0.15, alpha: 1).setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 6), xRadius: 56, yRadius: 56).fill()
-            let path = NSBezierPath()
-            path.move(to: NSPoint(x: 35, y: 67)); path.line(to: NSPoint(x: 103, y: 181)); path.line(to: NSPoint(x: 151, y: 112)); path.line(to: NSPoint(x: 180, y: 151)); path.line(to: NSPoint(x: 225, y: 67)); path.close()
-            NSGradient(starting: .systemTeal, ending: .systemGreen)?.draw(in: path, angle: 65)
-            return true
-        }
-    }
+
 }
 
 struct MenuControls: View {
