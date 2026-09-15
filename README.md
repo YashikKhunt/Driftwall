@@ -10,7 +10,8 @@ To install, drag `Driftwall.app` into Applications. Enable **Launch at Login** i
 
 ## Features
 
-- Six original animated scenes: Northern Lights, Midnight Ocean, Amber Dunes, Deep Space, Violet Silk, and Jade Flow.
+- 16 original animated scenes across Nature, Ocean, Space, Abstract, and Minimal collections.
+- Library tab with category and search filters, alongside the featured Discover view and My videos.
 - Import locally playable MP4, MOV, and other movie files. Videos are copied into your own library, muted, and looped with AVPlayerLooper.
 - Desktop windows stay behind icons, ignore clicks, and follow desktop Spaces.
 - Apply to all displays or the primary display; reconnecting displays rebuilds playback.
@@ -28,7 +29,7 @@ bash scripts/build.sh
 bash scripts/test.sh
 ```
 
-The smoke test compiles the actual Metal shader, renders all six scenes on the GPU, checks image variation, and verifies their frames change over time.
+The smoke test compiles the actual Metal shader, renders all 16 scenes on the GPU, checks image variation, and verifies their frames change over time.
 
 ## Scope and limitations
 

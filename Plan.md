@@ -169,17 +169,17 @@ In `Sources/DriftwallApp.swift`:
 
 ## 5. Acceptance criteria
 
-- [ ] `Scene` has a `category` field; all scenes (existing and new) are tagged.
-- [ ] The catalog has grown beyond the original six scenes (target: 16+).
-- [ ] The Library window shows three sidebar sections: Discover, Library, My videos.
-- [ ] The Library section supports filtering by category and by the existing search
+- [x] `Scene` has a `category` field; all scenes (existing and new) are tagged.
+- [x] The catalog has grown beyond the original six scenes (target: 16+).
+- [x] The Library window shows three sidebar sections: Discover, Library, My videos.
+- [x] The Library section supports filtering by category and by the existing search
       field, and correctly shows an empty/all state.
-- [ ] Every scene in `Scene.all` renders and animates per `Tests/RenderSmoke.swift`
+- [x] Every scene in `Scene.all` renders and animates per `Tests/RenderSmoke.swift`
       (`bash scripts/test.sh` passes).
-- [ ] `bash scripts/build.sh` still produces `build/Driftwall.app` without warnings
+- [x] `bash scripts/build.sh` still produces `build/Driftwall.app` without warnings
       introduced by this change.
-- [ ] README reflects the new scene count and the Library tab.
-- [ ] No existing scene's `id` or `kind` changed (backward compatible with saved
+- [x] README reflects the new scene count and the Library tab.
+- [x] No existing scene's `id` or `kind` changed (backward compatible with saved
       preferences).
 
 ## 6. Non-goals (do not do these as part of this change)
@@ -189,3 +189,9 @@ In `Sources/DriftwallApp.swift`:
 - No new third-party dependencies.
 - No changes to video import/removal behavior.
 - No Lock Screen / screen saver integration.
+
+## Implementation status — 2026-09-15
+
+Implemented sections 4.1–4.4: 16 categorized scenes, a Library section with combined category/search filtering and resettable empty state, six featured Discover scenes, and a separate My videos grid. README and About copy reflect the expanded catalog. Original scene IDs and kinds are preserved.
+
+Validation: all 16 scenes pass the GPU render/animation smoke test; the app builds without compiler warnings. Catalog IDs, kinds, and original mappings were checked, and a rendered contact sheet was visually reviewed. Interactive Library navigation still needs a manual check in the running app.

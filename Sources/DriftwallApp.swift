@@ -113,19 +113,48 @@ struct LibraryView: View {
     @EnvironmentObject var store: WallpaperStore
     @ViewState private var section = "Discover"
     @ViewState private var search = ""
+    @ViewState private var category = "All"
     @ViewState private var settings = false
     @ViewState private var videoToDelete: Video? = nil
     private let accent = Color(red: 0.48, green: 0.92, blue: 0.73)
     var selectedScene: Scene? { Scene.all.first { $0.id == store.selected } }
     var selectedVideo: Video? { store.videos.first { $0.id == store.selected } }
+    private var visibleScenes: [Scene] {
+        let catalog = section == "Discover" ? Array(Scene.all.prefix(6)) : Scene.all
+        return catalog.filter {
+            (section != "Library" || category == "All" || $0.category == category)
+                && (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
+        }
+    }
+    private var heading: String {
+        switch section {
+        case "Library": return "Every atmosphere."
+        case "My videos": return "Make it yours."
+        default: return "A little more alive."
+        }
+    }
+    private var subtitle: String {
+        switch section {
+        case "Library": return "Browse the full collection by mood."
+        case "My videos": return "Your videos. Your desktop. On repeat."
+        default: return "Original scenes for your everyday escape."
+        }
+    }
+    private var collectionLabel: String {
+        switch section {
+        case "Library": return "LIBRARY  ·  \(category.uppercased())"
+        case "My videos": return "YOUR LIBRARY"
+        default: return "THE COLLECTION"
+        }
+    }
     var body: some View {
         HStack(spacing: 0) {
             sidebar
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(section == "Discover" ? "A little more alive." : "Make it yours.").font(.system(size: 28, weight: .semibold, design: .rounded))
-                        Text(section == "Discover" ? "Original scenes for your everyday escape." : "Your videos. Your desktop. On repeat.").foregroundStyle(.secondary)
+                        Text(heading).font(.system(size: 28, weight: .semibold, design: .rounded))
+                        Text(subtitle).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button { store.importVideo() } label: { Label(store.importing ? "Importing…" : "Import video", systemImage: "plus") }
@@ -135,16 +164,27 @@ struct LibraryView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         hero
                         HStack {
-                            Text(section == "Discover" ? "THE COLLECTION" : "YOUR LIBRARY").font(.system(size: 11, weight: .bold)).tracking(2).foregroundStyle(.secondary)
+                            Text(collectionLabel).font(.system(size: 11, weight: .bold)).tracking(2).foregroundStyle(.secondary)
                             Spacer()
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             TextField("Find a wallpaper", text: $search).textFieldStyle(.plain).frame(width: 160)
                         }
+                        if section == "Library" { categoryFilters }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 16)], spacing: 18) {
-                            if section == "Discover" {
-                                ForEach(Scene.all.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { scene in sceneCard(scene) }
+                            if section == "My videos" {
+                                ForEach(store.videos.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { video in videoCard(video) }
+                            } else {
+                                ForEach(visibleScenes) { scene in sceneCard(scene) }
                             }
-                            ForEach(store.videos.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { video in videoCard(video) }
+                        }
+                        if section == "Library" && visibleScenes.isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "magnifyingglass").font(.title).foregroundStyle(accent)
+                                Text("No wallpapers found").font(.headline)
+                                Text("Try another category or a different search.").foregroundStyle(.secondary)
+                                Button("Show all wallpapers") { category = "All"; search = "" }
+                                    .buttonStyle(.bordered)
+                            }.frame(maxWidth: .infinity).padding(30)
                         }
                         if section == "My videos" && store.videos.isEmpty {
                             VStack(spacing: 14) {
@@ -169,6 +209,23 @@ struct LibraryView: View {
             Button("Remove Video", role: .destructive) { if let video = videoToDelete { store.removeVideo(video) }; videoToDelete = nil }
         } message: { Text("Only Driftwall’s imported copy will be deleted. Your original file stays where it is.") }
     }
+    var categoryFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(["All"] + Scene.categories, id: \.self) { item in
+                    Button { category = item } label: {
+                        Text(item).font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .foregroundStyle(category == item ? accent : .secondary)
+                            .background(category == item ? accent.opacity(0.09) : .white.opacity(0.04), in: Capsule())
+                            .overlay(Capsule().stroke(category == item ? accent.opacity(0.65) : .clear))
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel("Filter by \(item)")
+                        .accessibilityAddTraits(category == item ? .isSelected : [])
+                }
+            }.padding(.vertical, 1)
+        }
+    }
     var sidebar: some View {
         VStack(alignment: .leading, spacing: 26) {
             HStack(spacing: 10) {
@@ -178,6 +235,7 @@ struct LibraryView: View {
             Text("YOUR DESKTOP, REIMAGINED").font(.system(size: 8, weight: .bold)).tracking(1.7).foregroundStyle(.secondary)
             VStack(spacing: 8) {
                 nav("Discover", icon: "square.grid.2x2")
+                nav("Library", icon: "square.stack.3d.up")
                 nav("My videos", icon: "play.rectangle")
             }
             Spacer()
@@ -228,7 +286,7 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 9) {
                 ScenePreview(kind: scene.kind).frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 9))
                 HStack { Text(scene.name).font(.system(size: 13, weight: .medium)); Spacer(); if store.active == scene.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(accent) } }
-                Text("LIVE SCENE  ·  METAL").font(.system(size: 8, weight: .medium)).tracking(1.2).foregroundStyle(.secondary)
+                Text(section == "Library" ? "\(scene.category.uppercased())  ·  LIVE SCENE" : "LIVE SCENE  ·  METAL").font(.system(size: 8, weight: .medium)).tracking(1.2).foregroundStyle(.secondary)
             }.padding(9).background(store.selected == scene.id ? .white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.selected == scene.id ? accent.opacity(0.65) : .white.opacity(0.07), lineWidth: 1))
         }.buttonStyle(.plain).accessibilityLabel("Select \(scene.name)")
@@ -262,7 +320,7 @@ struct SettingsView: View {
                     Text("Playback pauses when your screen sleeps or your Mac gets too warm. Full-screen detection is best effort. Frame rate applies to original scenes; videos retain their native frame rate.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("About Driftwall") {
-                    Text("An independent, free live wallpaper app. Six original GPU-rendered scenes and your own videos. Close the library to keep playback running; use the menu bar to pause or quit.")
+                    Text("An independent, free live wallpaper app. \(Scene.all.count) original GPU-rendered scenes and your own videos. Close the library to keep playback running; use the menu bar to pause or quit.")
                     Text("Desktop animation only. Lock Screen and screen saver integration are not included. Your system wallpaper is never changed; Stop or Quit reveals it immediately.").foregroundStyle(.secondary)
                     Button("Show video library in Finder") { NSWorkspace.shared.open(store.libraryURL) }
                 }
