@@ -19,7 +19,7 @@ Use this together with `Plan.md` at the repository root, which describes the wid
 Two files define every scene:
 
 - `Sources/Scenes.swift`
-  - `struct Scene { id, name, subtitle, kind, colors, category }` — one entry per
+  - `struct Scene { id, name, subtitle, kind, colors }` currently; add `category` as specified in `Plan.md` §4.1 — one entry per wallpaper in `Scene.all`.
     wallpaper in `Scene.all`.
   - `SceneRenderer` — compiles `SceneRenderer.shader` (one big Metal source string)
     and calls `fragmentMain(in, u)` every frame, where `u = (width, height, elapsed,
