@@ -1,0 +1,45 @@
+name: Community validation
+on:
+  pull_request:
+    paths: [Community/**, scripts/**, Tests/**, Sources/CommunityCatalog.swift, Sources/VideoSafety.swift, .github/workflows/community-validation.yml]
+  push:
+    branches: [main]
+    paths: [Community/**, scripts/**, Tests/**, Sources/CommunityCatalog.swift, Sources/VideoSafety.swift, .github/workflows/community-validation.yml]
+permissions:
+  contents: read
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: submitted
+          persist-credentials: false
+      - name: Validate with trusted base validator
+        run: |
+          test -f trusted/scripts/validate-community.py || { echo 'Base commit lacks trusted validator; manual bootstrap required'; exit 1; }
+          python3 trusted/scripts/validate-community.py submitted/Community
+  media:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: submitted
+          persist-credentials: false
+      - name: Validate media with trusted code
+        run: |
+          test -f trusted/Tests/ValidateCommunityMedia.swift || { echo 'Base commit lacks trusted media validator; manual bootstrap required'; exit 1; }
+          xcrun swiftc -O -swift-version 5 -framework AVFoundation -framework AppKit trusted/Sources/VideoSafety.swift trusted/Sources/CommunityCatalog.swift trusted/Tests/ValidateCommunityMedia.swift -o "$RUNNER_TEMP/validate-community-media"
+          "$RUNNER_TEMP/validate-community-media" submitted/Community

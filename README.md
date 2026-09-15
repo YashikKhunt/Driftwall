@@ -12,7 +12,7 @@ To install, drag `Driftwall.app` into Applications. Enable **Launch at Login** i
 
 - 16 original animated scenes across Nature, Ocean, Space, Abstract, and Minimal collections.
 - Library tab with category and search filters, alongside the featured Discover view and My videos.
-- Import locally playable MP4, MOV, and other movie files. Videos are copied into your own library, muted, and looped with AVPlayerLooper.
+- Import standalone H.264/HEVC MP4 and MOV videos within the documented media limits. Videos are copied into your own library, muted, and looped with AVPlayerLooper.
 - Desktop windows stay behind icons, ignore clicks, and follow desktop Spaces.
 - Apply to all displays or the primary display; reconnecting displays rebuilds playback.
 - Pause/resume and restore the original desktop without changing the system wallpaper.
@@ -20,16 +20,34 @@ To install, drag `Driftwall.app` into Applications. Enable **Launch at Login** i
 - Saved wallpaper and preferences, plus optional launch at login.
 - Adjustable 15/30/60 fps for generated scenes. Rendering is capped at 1920 logical pixels wide to reduce GPU work; video resolution is preserved and cropped to fill the display.
 
+## Community wallpapers
+
+The **Community** section is ready for reviewed artist contributions. Its initial
+catalog is empty: submit original looping video artwork through the
+[contribution guide](CONTRIBUTING.md). Approved work is bundled in an app release
+with its artist, category, and redistribution license. The gallery supports
+category/title/artist search, still thumbnails, and local preview/playback.
+
+Community assets are validated locally; there are no automatic downloads or
+accounts. Contribution and artist links open in your browser only when clicked.
+Video imports are capped at 200 MiB per file, 120 seconds, 60 fps, a 4096-pixel
+long edge and 2160-pixel short edge, 500 videos, and 2 GiB total imported media.
+Symlinks, unsafe stored paths, invalid containers, unsupported codecs, and files
+that fail sampled decoding are rejected. Existing files outside these limits
+may need to be re-encoded before importing. See [SECURITY.md](SECURITY.md) for
+trust boundaries and limitations; these checks do not guarantee malware-free
+content or replace maintainer review.
+
 ## Build and verify
 
-Requires macOS 14 or newer and Apple's Command Line Tools (`xcode-select --install`).
+Requires Python 3, macOS 14 or newer, and Apple's Command Line Tools (`xcode-select --install`).
 
 ```sh
 bash scripts/build.sh
 bash scripts/test.sh
 ```
 
-The smoke test compiles the actual Metal shader, renders all 16 scenes on the GPU, checks image variation, and verifies their frames change over time.
+The smoke test compiles the actual Metal shader, renders all 16 scenes on the GPU, checks image variation, and verifies their frames change over time. Tests also cover catalog validation, hostile metadata/paths, bounded video copying, and real H.264 media validation. Builds validate the community catalog and bundled media before packaging.
 
 ## Scope and limitations
 

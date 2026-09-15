@@ -6,7 +6,10 @@ import AVKit
 // Explicit alias selects the property wrapper on SDKs that also expose a State macro.
 typealias ViewState<Value> = SwiftUI.State<Value>
 
-@main struct DriftwallApp: App {
+#if !DRIFTWALL_TESTS
+@main
+#endif
+struct DriftwallApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = WallpaperStore()
     var body: some SwiftUI.Scene {
@@ -99,13 +102,37 @@ struct VideoPreview: NSViewRepresentable {
         context.coordinator.looper?.disableLooping()
         let player = AVQueuePlayer()
         player.isMuted = true
-        context.coordinator.looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+        context.coordinator.looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: VideoSafety.restrictedAsset(at: url)))
         context.coordinator.player = player; context.coordinator.url = url
         view.player = player
         // Video previews start paused; the user's desktop playback remains independent.
     }
     static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
         coordinator.player?.pause(); coordinator.looper?.disableLooping(); view.player = nil
+    }
+}
+
+struct CommunityThumbnail: View {
+    let url: URL?
+    @ViewState private var image: NSImage?
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.25)
+            if let image {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: url == nil ? "exclamationmark.triangle" : "photo").foregroundStyle(.secondary)
+            }
+        }.clipped().task(id: url) {
+            image = nil
+            guard let url else { return }
+            let generator = AVAssetImageGenerator(asset: VideoSafety.restrictedAsset(at: url))
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 420, height: 236)
+            if let result = try? await generator.image(at: .zero), !Task.isCancelled {
+                image = NSImage(cgImage: result.image, size: .zero)
+            }
+        }
     }
 }
 
@@ -117,7 +144,11 @@ struct LibraryView: View {
     @ViewState private var settings = false
     @ViewState private var videoToDelete: Video? = nil
     private let accent = Color(red: 0.48, green: 0.92, blue: 0.73)
+    init(section: String = "Discover") {
+        _section = ViewState(initialValue: section)
+    }
     var selectedScene: Scene? { Scene.all.first { $0.id == store.selected } }
+    var selectedCommunity: CommunityWallpaper? { store.communityWallpapers.first { $0.id == store.selected } }
     var selectedVideo: Video? { store.videos.first { $0.id == store.selected } }
     private var visibleScenes: [Scene] {
         let catalog = section == "Discover" ? Array(Scene.all.prefix(6)) : Scene.all
@@ -126,9 +157,15 @@ struct LibraryView: View {
                 && (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
         }
     }
+    private var visibleCommunity: [CommunityWallpaper] {
+        store.communityWallpapers.filter {
+            (category == "All" || $0.category == category) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || $0.artist.localizedCaseInsensitiveContains(search))
+        }
+    }
     private var heading: String {
         switch section {
         case "Library": return "Every atmosphere."
+        case "Community": return "Made to be shared."
         case "My videos": return "Make it yours."
         default: return "A little more alive."
         }
@@ -136,6 +173,7 @@ struct LibraryView: View {
     private var subtitle: String {
         switch section {
         case "Library": return "Browse the full collection by mood."
+        case "Community": return "Artist-made wallpapers, selected for Driftwall."
         case "My videos": return "Your videos. Your desktop. On repeat."
         default: return "Original scenes for your everyday escape."
         }
@@ -143,6 +181,7 @@ struct LibraryView: View {
     private var collectionLabel: String {
         switch section {
         case "Library": return "LIBRARY  ·  \(category.uppercased())"
+        case "Community": return "COMMUNITY  ·  \(category.uppercased())"
         case "My videos": return "YOUR LIBRARY"
         default: return "THE COLLECTION"
         }
@@ -162,17 +201,19 @@ struct LibraryView: View {
                 }.padding(.bottom, 24)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        hero
+                        if section != "Community" || selectedCommunity != nil { hero }
                         HStack {
                             Text(collectionLabel).font(.system(size: 11, weight: .bold)).tracking(2).foregroundStyle(.secondary)
                             Spacer()
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                             TextField("Find a wallpaper", text: $search).textFieldStyle(.plain).frame(width: 160)
                         }
-                        if section == "Library" { categoryFilters }
+                        if section == "Library" || section == "Community" { categoryFilters }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 16)], spacing: 18) {
                             if section == "My videos" {
                                 ForEach(store.videos.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { video in videoCard(video) }
+                            } else if section == "Community" {
+                                ForEach(visibleCommunity) { wallpaper in communityCard(wallpaper) }
                             } else {
                                 ForEach(visibleScenes) { scene in sceneCard(scene) }
                             }
@@ -185,6 +226,25 @@ struct LibraryView: View {
                                 Button("Show all wallpapers") { category = "All"; search = "" }
                                     .buttonStyle(.bordered)
                             }.frame(maxWidth: .infinity).padding(30)
+                        }
+                        if section == "Community" {
+                            if let error = store.communityError {
+                                Label(error, systemImage: "exclamationmark.triangle")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                            if store.communityLoading {
+                                ProgressView("Loading community collection…").frame(maxWidth: .infinity).padding(30)
+                            } else if store.communityWallpapers.isEmpty && store.communityError == nil {
+                                communityInvitation
+                            } else if visibleCommunity.isEmpty {
+                                VStack(spacing: 12) {
+                                    Text("No matching community wallpapers").font(.headline)
+                                    Text("Try another category, title, or artist.").foregroundStyle(.secondary)
+                                    Button("Show all community wallpapers") { category = "All"; search = "" }
+                                        .buttonStyle(.bordered)
+                                }.frame(maxWidth: .infinity).padding(30)
+                            }
+                            if !store.communityWallpapers.isEmpty { contributionLinks }
                         }
                         if section == "My videos" && store.videos.isEmpty {
                             VStack(spacing: 14) {
@@ -236,6 +296,7 @@ struct LibraryView: View {
             VStack(spacing: 8) {
                 nav("Discover", icon: "square.grid.2x2")
                 nav("Library", icon: "square.stack.3d.up")
+                nav("Community", icon: "person.2")
                 nav("My videos", icon: "play.rectangle")
             }
             Spacer()
@@ -255,7 +316,7 @@ struct LibraryView: View {
         }.padding(22).frame(width: 210).frame(maxHeight: .infinity).background(.black.opacity(0.2))
     }
     func nav(_ title: String, icon: String) -> some View {
-        Button { section = title; search = "" } label: {
+        Button { section = title; search = ""; category = "All" } label: {
             HStack(spacing: 12) { Image(systemName: icon); Text(title); Spacer() }.padding(12)
                 .foregroundStyle(section == title ? accent : .secondary)
                 .background(section == title ? accent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 9))
@@ -264,22 +325,75 @@ struct LibraryView: View {
     var hero: some View {
         ZStack(alignment: .bottomLeading) {
             if let scene = selectedScene { ScenePreview(kind: scene.kind, animated: false) }
-            else if let video = selectedVideo { VideoPreview(url: store.libraryURL.appendingPathComponent(video.filename)) }
+            else if let wallpaper = selectedCommunity, let url = store.communityURL(for: wallpaper) { VideoPreview(url: url) }
+            else if let video = selectedVideo, let url = store.videoURL(for: video) { VideoPreview(url: url) }
+            else { Text("This wallpaper is unavailable").foregroundStyle(.secondary) }
             LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom).allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 9) {
-                Text(selectedScene != nil ? "GENERATIVE  /  ORIGINAL" : "FROM YOUR LIBRARY").font(.system(size: 9, weight: .bold)).tracking(2).foregroundStyle(accent)
+                Text(selectedScene != nil ? "GENERATIVE  /  ORIGINAL" : selectedCommunity != nil ? "COMMUNITY  /  ARTIST CONTRIBUTION" : "FROM YOUR LIBRARY").font(.system(size: 9, weight: .bold)).tracking(2).foregroundStyle(accent)
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(store.name(for: store.selected)).font(.system(size: 29, weight: .medium, design: .rounded)).lineLimit(1)
-                        Text(selectedScene?.subtitle ?? "A moment worth keeping in motion").font(.subheadline).foregroundStyle(.white.opacity(0.65))
+                        Text(selectedScene?.subtitle ?? selectedCommunity?.description ?? "A moment worth keeping in motion").font(.subheadline).foregroundStyle(.white.opacity(0.65))
                     }
                     Spacer()
                     Button { store.apply() } label: {
                         Label(store.active == store.selected ? "Apply again" : "Set wallpaper", systemImage: "desktopcomputer").fontWeight(.semibold).padding(.horizontal, 9).padding(.vertical, 8)
                     }.buttonStyle(.borderedProminent).tint(accent).foregroundStyle(.black)
                 }
+                if let wallpaper = selectedCommunity {
+                    HStack {
+                        Text("By \(wallpaper.artist) · \(wallpaper.license)").font(.caption)
+                        if let url = wallpaper.profileURL { Link("Artist profile ↗", destination: url).font(.caption).tint(accent) }
+                    }
+                }
             }.padding(24)
         }.frame(height: 270).clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    private var contributionGuideURL: URL {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0"
+        return URL(string: "https://github.com/YashikKhunt/Driftwall/blob/v\(version)/CONTRIBUTING.md")!
+    }
+    private var submissionURL: URL {
+        var url = URLComponents(string: "https://github.com/YashikKhunt/Driftwall/issues/new")!
+        url.queryItems = [
+            URLQueryItem(name: "title", value: "Wallpaper: "),
+            URLQueryItem(name: "body", value: "Title:\nArtist:\nLicense (CC0-1.0 or CC-BY-4.0):\nCategory:\nDescription:\n\nAttach your MP4/MOV here. Confirm you have permission to redistribute it and that it contains no private or sensitive content.\n\nContribution guide: \(contributionGuideURL.absoluteString)")
+        ]
+        return url.url!
+    }
+    var contributionLinks: some View {
+        HStack(spacing: 18) {
+            Link("Contribution guide ↗", destination: contributionGuideURL)
+            Link("Submit your wallpaper ↗", destination: submissionURL)
+        }.font(.callout).tint(accent)
+    }
+    var communityInvitation: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "person.2.crop.square.stack").font(.system(size: 38)).foregroundStyle(accent)
+            Text("Your art could live here").font(.title2.weight(.semibold))
+            Text("The community collection is open for submissions. Share an original looping video; approved work will appear in a future release with your name and license.")
+                .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 480)
+            contributionLinks
+            Text("No community wallpapers have been published yet.").font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity).padding(.vertical, 45)
+    }
+    func communityCard(_ wallpaper: CommunityWallpaper) -> some View {
+        Button { store.selected = wallpaper.id } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                CommunityThumbnail(url: store.communityURL(for: wallpaper))
+                    .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 9))
+                HStack {
+                    Text(wallpaper.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Spacer()
+                    if store.active == wallpaper.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(accent) }
+                }
+                Text("By \(wallpaper.artist)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text("\(wallpaper.category.uppercased()) · \(wallpaper.license)").font(.system(size: 8)).foregroundStyle(.secondary)
+            }.padding(9)
+                .background(store.selected == wallpaper.id ? .white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.selected == wallpaper.id ? accent.opacity(0.65) : .white.opacity(0.07)))
+        }.buttonStyle(.plain).accessibilityLabel("Select \(wallpaper.title), by \(wallpaper.artist)")
     }
     func sceneCard(_ scene: Scene) -> some View {
         Button { store.selected = scene.id } label: {

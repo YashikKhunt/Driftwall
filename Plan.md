@@ -1,3 +1,5 @@
+> Next milestone: [Community wallpapers](CommunityPlan.md), implementing the reviewed offline contribution pipeline and media hardening.
+
 # Plan: Add a "Library" tab and expand wallpaper variety
 
 This document is a self-contained implementation plan for a coding agent (e.g. Claude
