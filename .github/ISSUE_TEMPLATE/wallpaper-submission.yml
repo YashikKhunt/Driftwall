@@ -1,0 +1,36 @@
+name: Community wallpaper submission
+description: Propose a reviewed, redistributable video wallpaper
+title: "Wallpaper: "
+labels: [community-wallpaper]
+body:
+  - type: markdown
+    attributes:
+      value: "Submissions are proposals and require content, privacy, and rights review. Do not attach archives, scripts, shaders, executables, or download links."
+  - type: input
+    id: title
+    attributes: {label: Title, description: "Up to 80 characters"}
+    validations: {required: true}
+  - type: textarea
+    id: description
+    attributes: {label: Description, description: "Up to 280 characters"}
+    validations: {required: true}
+  - type: input
+    id: artist
+    attributes: {label: Artist name}
+    validations: {required: true}
+  - type: dropdown
+    id: license
+    attributes: {label: License, options: [CC0-1.0, CC-BY-4.0]}
+    validations: {required: true}
+  - type: dropdown
+    id: category
+    attributes: {label: Category, options: [Nature, Ocean, Space, Abstract, Minimal]}
+    validations: {required: true}
+  - type: textarea
+    id: rights
+    attributes: {label: Redistribution and privacy confirmation, description: "Confirm permission to redistribute and that the video contains no private or sensitive content."}
+    validations: {required: true}
+  - type: textarea
+    id: media
+    attributes: {label: Media details, description: "Upload a standalone H.264/HEVC .mp4 or .mov (<=120s, <=60fps, <=4096 long edge, <=2160 short edge)."}
+    validations: {required: true}
