@@ -27,8 +27,8 @@ curated set (aim for at least 16-20 total) using the scene "recipes" in the skil
 file, and let the user filter the Library tab by category as well as by the existing
 search box.
 
-`Discover` remains a small, rotating "featured" surface (it can simply show a subset
-or all scenes); `Library` is the full, organized catalog; `My videos` is unchanged.
+`Discover` remains a featured surface (it may show a subset or all scenes); `Library` is the full, organized
+catalog; `My videos` is unchanged.
 
 ## 3. Current architecture (read these first)
 
