@@ -4,9 +4,9 @@ This document is a self-contained implementation plan for a coding agent (e.g. C
 Code) to execute. It describes exactly what to build, in what order, and how to verify
 it, so the work can be picked up and finished without re-deriving context from scratch.
 
-Read `.claude/skills/wallpaper-scene-creation/SKILL.md` before starting section 2 — it
+Read `.claude/skills/wallpaper-scene-creation/SKILL.md` before starting section 4.2 — it
 explains the recipe for adding new generative wallpaper *types* (aurora-style, wave,
-gradient, particle, geometric, fractal, terrain, etc.) in a way that is consistent with
+gradient, particle, geometric, terrain, etc.) in a way that is consistent with
 this codebase's Metal shader architecture.
 
 ## 1. Problem
@@ -27,14 +27,15 @@ curated set (aim for at least 16-20 total) using the scene "recipes" in the skil
 file, and let the user filter the Library tab by category as well as by the existing
 search box.
 
-`Discover` remains a featured surface (it may show a subset or all scenes); `Library` is the full, organized
-catalog; `My videos` is unchanged.
+`Discover` remains the featured surface with the same scene/search behavior it has
+today (no new category filtering); `Library` is the full, organized catalog; `My videos`
+is unchanged.
 
 ## 3. Current architecture (read these first)
 
 - `Sources/Scenes.swift`
   - `Scene` is a plain struct: `id`, `name`, `subtitle`, `kind` (an `Int` selecting a
-    branch in the Metal shader), `colors` (used for card accents).
+    branch in the Metal shader), `colors`.
   - `Scene.all` is the hardcoded array of six scenes.
   - `SceneRenderer` compiles one big inline Metal shader source string
     (`SceneRenderer.shader`) at runtime and dispatches on `mode` (== `kind`) inside
@@ -82,7 +83,7 @@ bringing the total to 16):
 
 | id | name | category | shader recipe (see skill) |
 |---|---|---|---|
-| `nebula` | Nebula Drift | Space | fractal-bloom |
+| `nebula` | Nebula Drift | Space | space-nebula |
 | `starfield` | Deep Starfield | Space | noise-terrain (star layer only, no ground) |
 | `waves` | Coastal Waves | Ocean | wave-field (higher frequency, foam highlights) |
 | `lagoon` | Glass Lagoon | Ocean | gradient-drift + wave-field mix |
@@ -125,11 +126,17 @@ In `Sources/DriftwallApp.swift`:
      by id, or a hand-picked `Scene.featured` list) — pick whichever keeps the
      "Discover" copy ("Original scenes for your everyday escape") coherent once the
      catalog has grown behind Library. Simplest correct option: keep Discover
-     showing everything it shows today, unfiltered.
+     showing everything it shows today, with existing search filtering and no new
+     category filter.
    - `Library`: show `Scene.all` filtered by `category` (unless `"All"`) and by the
      existing `search` text field, same `localizedCaseInsensitiveContains` pattern
      used today.
-   - `My videos`: unchanged (videos only).
+     If no scenes match the active category/search combination, show an explicit
+     empty state message in the grid area and keep the `"All"` chip visible so users
+     can quickly reset.
+   - `My videos`: unchanged (videos only); make `ForEach(store.videos...)`
+     conditional on `section == "My videos"` so videos do not appear under Discover
+     or Library.
 5. Update the header copy (`Text(section == "Discover" ? ... : ...)`) to add a third
    case for `Library`, e.g. title "Every atmosphere." / subtitle "Browse the full
    collection by mood."
@@ -150,12 +157,15 @@ In `Sources/DriftwallApp.swift`:
    - "Six original animated scenes: ..." → update the count and either list all
      scenes or say "N original animated scenes across Nature, Ocean, Space,
      Abstract, and Minimal collections."
+   - Update the build-verification paragraph that currently says the smoke test
+     renders "all six scenes" so it matches the expanded catalog.
    - Mention the new Library tab under Features, e.g. "Library tab organizes every
      built-in scene by category, in addition to the featured Discover view and your
      imported videos."
 3. Keep `Scene.all` ordering stable (append new scenes at the end) so saved
-   `selected`/`active` ids in `UserDefaults` keep resolving to the same names for
-   existing users — never reuse an old scene's `id` or `kind` for a different scene.
+   scene ids keep resolving to the same names for existing users (`active` is
+   persisted in `UserDefaults`; `selected` is transient) — never reuse an old scene's
+   `id` or `kind` for a different scene.
 
 ## 5. Acceptance criteria
 

@@ -1,6 +1,6 @@
 ---
 name: wallpaper-scene-creation
-description: Use when adding a new built-in generative wallpaper scene to Driftwall (a SwiftUI/Metal macOS app), or when asked to grow/organize the wallpaper catalog (e.g. the Library tab in Plan.md). Covers the Scene model, the single-shader-source Metal renderer pattern, and recipes for different visual styles (aurora/wave, ocean, gradient, particle, geometric, fractal, terrain).
+description: Use when adding a new built-in generative wallpaper scene to Driftwall (a SwiftUI/Metal macOS app), or when asked to grow/organize the wallpaper catalog (e.g. the Library tab in Plan.md). Covers the Scene model, the single-shader-source Metal renderer pattern, and recipes for different visual styles (aurora/wave, ocean, gradient, particle, geometric, terrain).
 ---
 
 # Wallpaper scene creation
@@ -20,14 +20,13 @@ Two files define every scene:
 
 - `Sources/Scenes.swift`
   - `struct Scene { id, name, subtitle, kind, colors }` currently; add `category` as specified in `Plan.md` §4.1 — one entry per wallpaper in `Scene.all`.
-    wallpaper in `Scene.all`.
   - `SceneRenderer` — compiles `SceneRenderer.shader` (one big Metal source string)
     and calls `fragmentMain(in, u)` every frame, where `u = (width, height, elapsed,
     kind)`. `elapsed` is seconds of animation time (not clock time), so scenes
     always start from `t = 0` and loop smoothly forever.
 - `Tests/RenderSmoke.swift` renders every `Scene.all` entry at `t=0` and `t=12` and
   asserts the frame (a) changes over time and (b) has more than 20 distinct
-  brightness values (i.e. it isn't a flat color). Any new scene must pass both
+  RGB byte sums (i.e. it isn't a flat color). Any new scene must pass both
   checks — this is the main thing to verify after adding one.
 
 ## Checklist for adding one new scene
@@ -35,7 +34,7 @@ Two files define every scene:
 1. Pick a `category` (`Nature`, `Ocean`, `Space`, `Abstract`, `Minimal`, or add a new
    one if it earns its own bucket — don't create a category for a single scene).
 2. Pick the next unused `kind` integer. **Never reuse or renumber an existing kind**
-   — saved user preferences (`UserDefaults` "selected"/"active") reference scenes by
+   — saved user preferences (`UserDefaults` "active"; `selected` is in-memory only) reference scenes by
    `id`, and shader branches are looked up by `kind`; changing either breaks
    existing users' saved wallpaper.
 3. Write `name` (2-3 words, plain English) and `subtitle` (one short evocative
@@ -47,9 +46,9 @@ Two files define every scene:
    - `p` = aspect-corrected, centered UV (`(uv - 0.5) * float2(u.x/u.y, 1.0)`).
    - `t` = `u.z * 0.12` — a slow, already-scaled time value. Multiply `t` by extra
      small constants (0.1-2.0) for different motion speeds; don't use `u.z` raw.
-   - `c` starts near-black (`float3(0.012,0.023,0.065)`); scenes build up color by
-     adding glow/gradient terms, not by fully overwriting `c` (except the two scenes
-     that intentionally paint a full-frame gradient background, dunes/mode 2).
+   - `c` starts near-black (`float3(0.012,0.023,0.065)`); most scenes build up color by
+     adding glow/gradient terms, but full-frame gradient recipes may intentionally
+     overwrite `c` (the current built-in example is dunes/mode 2).
    - The `hash(float2)` helper and the twinkling star overlay
      (`if(mode==0 || mode==3) { ... }`) can be reused by adding your new mode to
      that `if` condition instead of duplicating the star loop.
@@ -136,7 +135,7 @@ Hard-edged repeating shapes using `fract`/`floor` on a scaled grid, for a more
 float2 grid = p * 6.0 + float2(t*0.15, t*0.1);
 float2 cell = fract(grid) - 0.5;
 float d = max(abs(cell.x), abs(cell.y)); // square cells; use length(cell) for circles
-float shape = smoothstep(0.42, 0.38, d);
+float shape = 1.0 - smoothstep(0.38, 0.42, d);
 float cellId = hash(floor(grid));
 c += shape * mix(COLOR_A, COLOR_B, cellId) * 0.5;
 ```
