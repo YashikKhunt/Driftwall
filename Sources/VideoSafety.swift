@@ -95,7 +95,7 @@ enum VideoSafety {
             }
             guard !descriptions.isEmpty, descriptions.allSatisfy({ description in
                 let codec = CMFormatDescriptionGetMediaSubType(description)
-                return codec == kCMVideoCodecType_H264 || codec == kCMVideoCodecType_HEVC
+                return [kCMVideoCodecType_H264, kCMVideoCodecType_HEVC, fourCC("avc3"), fourCC("hev1")].contains(codec)
             }) else {
                 throw Error.invalidVideo("Only H.264 and HEVC video is supported.")
             }
@@ -166,5 +166,9 @@ enum VideoSafety {
         let values = try standard.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard values.isDirectory == true, values.isSymbolicLink != true, standard == resolved else { throw Error.unsafeDirectory }
         return standard
+    }
+
+    private static func fourCC(_ value: String) -> FourCharCode {
+        value.utf8.reduce(0) { ($0 << 8) | FourCharCode($1) }
     }
 }

@@ -38,6 +38,7 @@ enum CommunityCatalog {
         }
         let data = try Data(contentsOf: manifest)
         guard data.count <= maxCatalogBytes,
+              try !hasDuplicateJSONKeys(data),
               let document = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(document.keys) == ["schemaVersion", "wallpapers"],
               let version = document["schemaVersion"] as? NSNumber,
@@ -78,6 +79,9 @@ enum CommunityCatalog {
             var profileURL: URL?
             if entry["profileURL"] != nil {
                 let value = try text(entry, "profileURL", limit: 300)
+                guard !value.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) else {
+                    throw Invalid(message: "Artist profile links must be plain HTTPS links.")
+                }
                 guard let components = URLComponents(string: value), components.scheme == "https",
                       let host = components.host, !host.isEmpty,
                       components.user == nil, components.password == nil,
@@ -100,10 +104,18 @@ enum CommunityCatalog {
                                       profileURL: profileURL, license: license, category: category,
                                       filename: filename, sha256: digest)
         }
-        for url in try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey]) {
-            let info = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey])
-            guard info.isSymbolicLink != true, info.isRegularFile == true,
-                  filenames.contains(url.lastPathComponent) || url.lastPathComponent == ".gitkeep" else {
+        for url in try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey]) {
+            let info = try url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey])
+            guard info.isSymbolicLink != true, info.isRegularFile == true else {
+                throw Invalid(message: "The community media folder contains an unexpected file.")
+            }
+            if url.lastPathComponent == ".gitkeep" {
+                guard (info.fileSize ?? -1) == 0 else {
+                    throw Invalid(message: "The community media folder contains an unexpected file.")
+                }
+                continue
+            }
+            guard filenames.contains(url.lastPathComponent) else {
                 throw Invalid(message: "The community media folder contains an unexpected file.")
             }
         }
@@ -132,6 +144,11 @@ enum CommunityCatalog {
         value.range(of: pattern, options: .regularExpression) != nil
     }
 
+    private static func hasDuplicateJSONKeys(_ data: Data) throws -> Bool {
+        let scanner = try JSONKeyScanner(data: data)
+        return try scanner.hasDuplicateKeys()
+    }
+
     static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -143,5 +160,192 @@ enum CommunityCatalog {
             hash.update(data: chunk)
         }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private struct JSONKeyScanner {
+    private let scalars: [UnicodeScalar]
+    private var index = 0
+
+    init(data: Data) throws {
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+        self.scalars = Array(text.unicodeScalars)
+    }
+
+    mutating func hasDuplicateKeys() throws -> Bool {
+        skipWhitespace()
+        let hasDuplicates = try parseValue()
+        skipWhitespace()
+        guard index == scalars.count else {
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+        return hasDuplicates
+    }
+
+    private mutating func parseValue() throws -> Bool {
+        guard let scalar = peek else {
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+        switch scalar {
+        case "{": return try parseObject()
+        case "[": return try parseArray()
+        case "\"":
+            _ = try parseString()
+            return false
+        case "t": try parseLiteral("true"); return false
+        case "f": try parseLiteral("false"); return false
+        case "n": try parseLiteral("null"); return false
+        default:
+            if scalar == "-" || CharacterSet.decimalDigits.contains(scalar) {
+                try parseNumber()
+                return false
+            }
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+    }
+
+    private mutating func parseObject() throws -> Bool {
+        try consume("{")
+        skipWhitespace()
+        if try consumeIf("}") { return false }
+        var keys = Set<String>()
+        while true {
+            let key = try parseString()
+            guard keys.insert(key).inserted else { return true }
+            skipWhitespace()
+            try consume(":")
+            skipWhitespace()
+            if try parseValue() { return true }
+            skipWhitespace()
+            if try consumeIf("}") { return false }
+            try consume(",")
+            skipWhitespace()
+        }
+    }
+
+    private mutating func parseArray() throws -> Bool {
+        try consume("[")
+        skipWhitespace()
+        if try consumeIf("]") { return false }
+        while true {
+            if try parseValue() { return true }
+            skipWhitespace()
+            if try consumeIf("]") { return false }
+            try consume(",")
+            skipWhitespace()
+        }
+    }
+
+    private mutating func parseString() throws -> String {
+        try consume("\"")
+        var output = String.UnicodeScalarView()
+        while let scalar = peek {
+            advance()
+            if scalar == "\"" { return String(output) }
+            if scalar == "\\" {
+                guard let escaped = peek else {
+                    throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+                }
+                advance()
+                switch escaped {
+                case "\"", "\\", "/": output.append(escaped)
+                case "b": output.append("\u{08}")
+                case "f": output.append("\u{0c}")
+                case "n": output.append("\n")
+                case "r": output.append("\r")
+                case "t": output.append("\t")
+                case "u": output.append(try parseUnicodeEscape())
+                default:
+                    throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+                }
+                continue
+            }
+            guard !CharacterSet.controlCharacters.contains(scalar) else {
+                throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+            }
+            output.append(scalar)
+        }
+        throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+    }
+
+    private mutating func parseUnicodeEscape() throws -> UnicodeScalar {
+        var value: UInt32 = 0
+        for _ in 0..<4 {
+            guard let scalar = peek, let hex = scalar.hexDigitValue else {
+                throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+            }
+            advance()
+            value = (value << 4) | UInt32(hex)
+        }
+        guard let unicode = UnicodeScalar(value) else {
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+        return unicode
+    }
+
+    private mutating func parseNumber() throws {
+        if try consumeIf("-") {}
+        try parseDigits()
+        if try consumeIf(".") {
+            try parseDigits()
+        }
+        if try consumeIf("e") || consumeIfUnchecked("E") {
+            if try consumeIf("+") || consumeIfUnchecked("-") {}
+            try parseDigits()
+        }
+    }
+
+    private mutating func parseDigits() throws {
+        guard let scalar = peek, CharacterSet.decimalDigits.contains(scalar) else {
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+        while let scalar = peek, CharacterSet.decimalDigits.contains(scalar) {
+            advance()
+        }
+    }
+
+    private mutating func parseLiteral(_ literal: String) throws {
+        for scalar in literal.unicodeScalars {
+            try consume(scalar)
+        }
+    }
+
+    private mutating func skipWhitespace() {
+        while let scalar = peek, CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            advance()
+        }
+    }
+
+    private var peek: UnicodeScalar? {
+        guard index < scalars.count else { return nil }
+        return scalars[index]
+    }
+
+    private mutating func advance() {
+        index += 1
+    }
+
+    private mutating func consume(_ expected: UnicodeScalar) throws {
+        guard try consumeIf(expected) else {
+            throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+        }
+    }
+
+    private mutating func consumeIf(_ scalar: UnicodeScalar) throws -> Bool {
+        if peek == scalar {
+            advance()
+            return true
+        }
+        return false
+    }
+
+    private mutating func consumeIfUnchecked(_ scalar: UnicodeScalar) -> Bool {
+        if peek == scalar {
+            advance()
+            return true
+        }
+        return false
     }
 }

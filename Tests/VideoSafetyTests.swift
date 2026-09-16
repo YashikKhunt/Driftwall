@@ -21,7 +21,9 @@ struct VideoSafetyTests {
 
         let valid = directory.appendingPathComponent("clip.mp4")
         try Data([0]).write(to: valid)
-        try expectThrows { try VideoSafety.validateRegularFile(at: directory.appendingPathComponent("empty.mp4")) }
+        let empty = directory.appendingPathComponent("empty.mp4")
+        try Data().write(to: empty)
+        try expectThrows { try VideoSafety.validateRegularFile(at: empty) }
         try expect(VideoSafety.validatedURL(filename: "clip.mp4", directory: directory) == valid, "safe regular file is accepted")
         try expectThrows { _ = try VideoSafety.validatedURL(filename: "../outside.mp4", directory: directory) }
         try expectThrows { _ = try VideoSafety.validatedURL(filename: "/tmp/outside.mp4", directory: directory) }
