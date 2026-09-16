@@ -33,7 +33,7 @@ enum CommunityCatalog {
         let manifest = directory.appendingPathComponent("catalog.json")
         let info = try manifest.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard info.isRegularFile == true, info.isSymbolicLink != true,
-              let size = info.fileSize, size > 0, size <= maxCatalogBytes else {
+              let size = info.fileSize, size > 0, size <= Int64(maxCatalogBytes) else {
             throw Invalid(message: "The community catalog is missing or too large.")
         }
         let data = try Data(contentsOf: manifest)
