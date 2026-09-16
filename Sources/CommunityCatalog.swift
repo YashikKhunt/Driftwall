@@ -88,7 +88,7 @@ enum CommunityCatalog {
                 profileURL = url
             }
             let url = try VideoSafety.validatedURL(filename: filename, directory: assets)
-            let bytes = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            let bytes = Int(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
             guard bytes > 0, bytes <= maxAssetBytes, bytes <= maxTotalBytes - total else {
                 throw Invalid(message: "Community media exceeds the collection size limit.")
             }
