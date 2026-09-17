@@ -6,12 +6,6 @@ import IOKit.ps
 import ServiceManagement
 import UniformTypeIdentifiers
 
-struct Video: Identifiable, Codable {
-    var id: String
-    var name: String
-    var filename: String
-}
-
 final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -50,6 +44,10 @@ final class WallpaperSurface {
     @Published var selected = "aurora"
     @Published var active: String? = UserDefaults.standard.string(forKey: "active")
     @Published var videos: [Video] = []
+    @Published var communityWallpapers: [CommunityWallpaper] = []
+    @Published var communityError: String?
+    @Published var communityLoading = true
+    private var communityDirectory: URL?
     @Published var paused = false
     @Published var status = "Ready when you are"
     @Published var error: String?
@@ -65,16 +63,18 @@ final class WallpaperSurface {
     private var asleep = false
     let libraryURL: URL
     var activeName: String { name(for: active ?? "") }
-    func name(for id: String) -> String { Scene.all.first { $0.id == id }?.name ?? videos.first { $0.id == id }?.name ?? "No wallpaper" }
+    func name(for id: String) -> String { Scene.all.first { $0.id == id }?.name ?? videos.first { $0.id == id }?.name ?? communityWallpapers.first { $0.id == id }?.title ?? "No wallpaper" }
 
-    init() {
+    init(loadSavedState: Bool = true) {
         libraryURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Driftwall/Library", isDirectory: true)
+        if !loadSavedState {
+            active = nil
+            communityLoading = false
+            return
+        }
         do {
             try FileManager.default.createDirectory(at: libraryURL, withIntermediateDirectories: true)
-            let manifest = libraryURL.appendingPathComponent("library.json")
-            if FileManager.default.fileExists(atPath: manifest.path) {
-                videos = try JSONDecoder().decode([Video].self, from: Data(contentsOf: manifest))
-            }
+            videos = try VideoLibrary.load(from: libraryURL)
         } catch { self.error = "Could not load your video library: \(error.localizedDescription)" }
         selected = active ?? "aurora"
         let nc = NSWorkspace.shared.notificationCenter
@@ -92,8 +92,34 @@ final class WallpaperSurface {
             Task { @MainActor in self?.rebuild() }
         })
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in Task { @MainActor in self?.refreshPlayback() } }
-        rebuild()
+        if active?.hasPrefix("community-") != true { rebuild() }
+        else { status = "Loading community collection" }
+        Task { await loadCommunity() }
         if CommandLine.arguments.contains("--enable-login") { setLogin(true) }
+    }
+    private func loadCommunity() async {
+        defer { communityLoading = false }
+        guard let directory = Bundle.main.resourceURL?.appendingPathComponent("Community", isDirectory: true) else {
+            communityError = "The community collection is unavailable."
+            if active?.hasPrefix("community-") == true { stop() }
+            return
+        }
+        do {
+            let wallpapers = try await Task.detached(priority: .utility) {
+                try await CommunityCatalog.validatedCollection(from: directory)
+            }.value
+            communityDirectory = directory
+            communityWallpapers = wallpapers
+            if active?.hasPrefix("community-") == true { rebuild() }
+        } catch {
+            communityError = "The community collection could not be loaded. Built-in wallpapers are still available."
+            if active?.hasPrefix("community-") == true { stop() }
+        }
+    }
+    func communityURL(for wallpaper: CommunityWallpaper) -> URL? {
+        guard let directory = communityDirectory,
+              communityWallpapers.contains(where: { $0.id == wallpaper.id && $0.sha256 == wallpaper.sha256 }) else { return nil }
+        return try? VideoSafety.validatedURL(filename: wallpaper.filename, directory: directory.appendingPathComponent("Assets"))
     }
     func saveSettings() {
         let d = UserDefaults.standard
@@ -102,7 +128,16 @@ final class WallpaperSurface {
         d.set(allDisplays, forKey: "allDisplays")
         d.set(fps, forKey: "fps")
     }
-    func apply() { active = selected; paused = false; UserDefaults.standard.set(active, forKey: "active"); rebuild() }
+    func apply() {
+        guard Scene.all.contains(where: { $0.id == selected }) || playbackVideoURL(for: selected) != nil else {
+            error = "This wallpaper is unavailable. Choose another wallpaper or import the video again."
+            return
+        }
+        active = selected
+        paused = false
+        UserDefaults.standard.set(active, forKey: "active")
+        rebuild()
+    }
     func stop() {
         surfaces.forEach { $0.close() }; surfaces.removeAll()
         active = nil; UserDefaults.standard.removeObject(forKey: "active"); status = "Original desktop restored"
@@ -126,12 +161,11 @@ final class WallpaperSurface {
                 view.drawableSize = CGSize(width: screen.frame.width * scale, height: screen.frame.height * scale)
                 surface.renderer = renderer; surface.metalView = view
                 surface.window.contentView = view
-            } else if let video = videos.first(where: { $0.id == active }) {
-                let url = libraryURL.appendingPathComponent(video.filename)
-                guard FileManager.default.fileExists(atPath: url.path) else { error = "This video is missing. Import it again."; stop(); return }
+            } else if let url = playbackVideoURL(for: active) {
+                guard FileManager.default.fileExists(atPath: url.path) else { error = "This video is missing or unsafe. Import it again."; stop(); return }
                 let player = AVQueuePlayer()
                 player.isMuted = true
-                let item = AVPlayerItem(url: url)
+                let item = AVPlayerItem(asset: VideoSafety.restrictedAsset(at: url))
                 surface.looper = AVPlayerLooper(player: player, templateItem: item)
                 surface.player = player
                 surface.videoObservation = player.observe(\.status, options: [.new]) { [weak self] player, _ in
@@ -148,6 +182,11 @@ final class WallpaperSurface {
             surface.window.orderFrontRegardless()
         }
         refreshPlayback()
+    }
+    private func playbackVideoURL(for id: String) -> URL? {
+        if let video = videos.first(where: { $0.id == id }) { return videoURL(for: video) }
+        if let wallpaper = communityWallpapers.first(where: { $0.id == id }) { return communityURL(for: wallpaper) }
+        return nil
     }
     func refreshPlayback() {
         guard active != nil else { return }
@@ -184,8 +223,9 @@ final class WallpaperSurface {
         } catch { self.error = "Could not change launch at login: \(error.localizedDescription)" }
     }
     func importVideo() {
+        guard !importing else { return }
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.movie, .mpeg4Movie, .quickTimeMovie]
+        panel.allowedContentTypes = [.mpeg4Movie, .quickTimeMovie]
         panel.allowsMultipleSelection = true
         panel.message = "Choose videos to keep in your wallpaper library. Videos play silently and loop."
         guard panel.runModal() == .OK else { return }
@@ -195,20 +235,36 @@ final class WallpaperSurface {
             defer { importing = false }
             for url in urls {
                 do {
-                    let asset = AVURLAsset(url: url)
-                    let playable = try await asset.load(.isPlayable)
-                    let tracks = try await asset.loadTracks(withMediaType: .video)
-                    let duration = try await asset.load(.duration)
-                    guard playable, !tracks.isEmpty, duration.seconds.isFinite, duration.seconds > 0 else {
-                        throw NSError(domain: "Driftwall", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) is not a playable video."])
+                    guard videos.count < VideoSafety.maximumLibraryEntries else {
+                        throw VideoSafety.Error.invalidVideo("Your video library is limited to \(VideoSafety.maximumLibraryEntries) videos.")
+                    }
+                    try VideoSafety.validateRegularFile(at: url)
+                    let existingBytes = try VideoSafety.libraryBytes(filenames: videos.map(\.filename), directory: libraryURL)
+                    let sourceBytes = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+                    guard existingBytes <= VideoSafety.maximumLibraryBytes - sourceBytes else {
+                        throw VideoSafety.Error.invalidVideo("Your video library is limited to 2 GiB.")
                     }
                     let id = UUID().uuidString
-                    let filename = id + "." + url.pathExtension
+                    let filename = id + "." + url.pathExtension.lowercased()
                     let destination = libraryURL.appendingPathComponent(filename)
-                    try await Task.detached { try FileManager.default.copyItem(at: url, to: destination) }.value
-                    let video = Video(id: id, name: url.deletingPathExtension().lastPathComponent, filename: filename)
+                    var copied = false
+                    defer { if copied { try? FileManager.default.removeItem(at: destination) } }
+                    try await Task.detached { try VideoLibrary.copyForImport(from: url, to: destination) }.value
+                    copied = true
+                    let safeDestination = try VideoSafety.validatedURL(filename: filename, directory: libraryURL)
+                    try await VideoSafety.validateVideo(at: safeDestination)
+                    let copiedBytes = Int64(try safeDestination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+                    let currentBytes = try VideoSafety.libraryBytes(filenames: videos.map(\.filename), directory: libraryURL)
+                    guard copiedBytes <= VideoSafety.maximumLibraryBytes - currentBytes else {
+                        throw VideoSafety.Error.invalidVideo("Your video library is limited to 2 GiB.")
+                    }
+                    let rawName = url.deletingPathExtension().lastPathComponent
+                    let cleanName = String(rawName.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) && $0.properties.generalCategory != .format })
+                    let name = String(cleanName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(256))
+                    let video = Video(id: id, name: name.isEmpty ? "Untitled video" : name, filename: filename)
                     videos.append(video)
-                    do { try saveLibrary() } catch { videos.removeAll { $0.id == id }; try? FileManager.default.removeItem(at: destination); throw error }
+                    do { try saveLibrary() } catch { videos.removeAll { $0.id == id }; throw error }
+                    copied = false
                     selected = id
                 } catch { self.error = error.localizedDescription }
             }
@@ -222,11 +278,17 @@ final class WallpaperSurface {
         } catch { videos = oldVideos; self.error = error.localizedDescription; return }
         if active == video.id { stop() }
         if selected == video.id { selected = "aurora" }
-        do { try FileManager.default.removeItem(at: libraryURL.appendingPathComponent(video.filename)) }
+        do {
+            guard let url = videoURL(for: video) else { throw VideoSafety.Error.unsafeFile }
+            try FileManager.default.removeItem(at: url)
+        }
         catch { self.error = "Removed from the library, but could not delete the copied file: \(error.localizedDescription)" }
     }
+    func videoURL(for video: Video) -> URL? {
+        try? VideoSafety.validatedURL(filename: video.filename, directory: libraryURL)
+    }
     private func saveLibrary() throws {
-        try JSONEncoder().encode(videos).write(to: libraryURL.appendingPathComponent("library.json"), options: .atomic)
+        try VideoLibrary.save(videos, to: libraryURL)
     }
 }
 
