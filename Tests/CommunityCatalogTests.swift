@@ -49,6 +49,24 @@ import Foundation
             let dir = try make(name, entries: [changed])
             rejects(name) { _ = try CommunityCatalog.load(from: dir) }
         }
+        let escaped = try make("escaped-unicode")
+        let escapedManifest = escaped.appendingPathComponent("catalog.json")
+        let originalJSON = try String(contentsOf: escapedManifest, encoding: .utf8)
+        let escapedJSON = originalJSON.replacingOccurrences(of: "Test fixture", with: #"\u0054est fi\u0078ture"#)
+        try Data(escapedJSON.utf8).write(to: escapedManifest)
+        let escapedEntries = try CommunityCatalog.load(from: escaped)
+        precondition(escapedEntries.first?.title == "Test fixture")
+        print("PASS: decodes ASCII Unicode escapes in valid JSON")
+        for (label, json) in [
+            ("escaped duplicate keys", #"{"schemaVersion":1,"\u0073chemaVersion":1,"wallpapers":[]}"#),
+            ("uppercase hex duplicate keys", #"{"schemaVersion":1,"wallpapers":[],"wa\u006Clpapers":[]}"#),
+            ("invalid hex escape", #"{"schemaVersion":1,"\u00G0":1,"wallpapers":[]}"#),
+            ("truncated Unicode escape", #"{"schemaVersion":1,"\u007":1,"wallpapers":[]}"#)
+        ] {
+            let directory = try make(label)
+            try Data(json.utf8).write(to: directory.appendingPathComponent("catalog.json"))
+            rejects(label) { _ = try CommunityCatalog.load(from: directory) }
+        }
         let duplicate = try make("duplicate", entries: [item, item])
         rejects("duplicate entry") { _ = try CommunityCatalog.load(from: duplicate) }
         let boolean = try make("boolean", version: true)
