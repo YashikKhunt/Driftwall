@@ -145,7 +145,7 @@ enum CommunityCatalog {
     }
 
     private static func hasDuplicateJSONKeys(_ data: Data) throws -> Bool {
-        let scanner = try JSONKeyScanner(data: data)
+        var scanner = try JSONKeyScanner(data: data)
         return try scanner.hasDuplicateKeys()
     }
 
@@ -273,11 +273,19 @@ private struct JSONKeyScanner {
     private mutating func parseUnicodeEscape() throws -> UnicodeScalar {
         var value: UInt32 = 0
         for _ in 0..<4 {
-            guard let scalar = peek, let hex = scalar.hexDigitValue else {
+            guard let scalar = peek else {
+                throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
+            }
+            let hex: UInt32
+            switch scalar.value {
+            case 48...57: hex = scalar.value - 48
+            case 65...70: hex = scalar.value - 65 + 10
+            case 97...102: hex = scalar.value - 97 + 10
+            default:
                 throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
             }
             advance()
-            value = (value << 4) | UInt32(hex)
+            value = (value << 4) | hex
         }
         guard let unicode = UnicodeScalar(value) else {
             throw CommunityCatalog.Invalid(message: "The community catalog format is unsupported.")
